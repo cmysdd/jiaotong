@@ -1,0 +1,12 @@
+{
+  "name": "交运题练 · 2026知识竞赛",
+  "short_name": "交运题练",
+  "description": "交通运输知识竞赛刷题与错题复习",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8f3",
+  "theme_color": "#182c29",
+  "lang": "zh-CN",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

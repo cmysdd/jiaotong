@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#182c29">
+  <meta name="description" content="2026年交通运输知识竞赛题库，支持单选、多选、判断、分类练习、模拟考试、错题复习和收藏。">
+  <title>交运题练 · 2026知识竞赛</title>
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="data/questions.js"></script>
+  <script defer src="quiz-core.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">跳转到内容</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <a class="brand" href="#dashboard"><img src="assets/icon.svg" alt="" width="40" height="40"><span>交运题练<small>TRANSPORT QUIZ</small></span></a>
+      <div class="edition"><span class="status-dot"></span>2026 知识竞赛题库</div>
+      <p class="nav-caption">学习空间</p>
+      <nav id="desktop-nav"></nav>
+      <div class="sidebar-bottom"><div class="study-tip"><span>每天进步一点点</span><p>把每一道题，变成你的底气。</p><div class="tip-road"></div></div><button class="settings-button" data-action="settings">学习设置 <span>↗</span></button><p class="sidebar-note">学习记录自动保存在此设备</p></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div class="breadcrumb"><span>学习空间</span><span class="breadcrumb-divider">/</span><strong id="page-label">学习概览</strong></div><form id="search-form" class="global-search" role="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg><input id="global-search" aria-label="搜索题目" placeholder="搜索题目或关键词…" autocomplete="off"><kbd>↵</kbd></form><div class="profile"><span class="profile-avatar">学</span><span>学习者<small>保持热爱，持续进步</small></span></div></header>
+      <main id="main-content" tabindex="-1"><div class="loading"><span class="status-dot"></span>正在准备你的题库…</div></main>
+      <footer class="page-footer"><span>交运题练 · 让每一次练习都有收获</span><span>题目与答案依据提供的 2026 年题库</span></footer>
+    </div>
+  </div>
+  <nav class="mobile-nav" id="mobile-nav" aria-label="移动主导航"></nav>
+  <dialog id="app-dialog" aria-labelledby="dialog-title"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript>请启用 JavaScript 后使用刷题功能。</noscript>
+</body>
+</html>
