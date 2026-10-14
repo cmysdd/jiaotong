@@ -32,8 +32,8 @@
   const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const button = (text, action, extra = '', className = '') => `<button class="button ${className}" data-action="${action}" ${extra}>${text}</button>`;
   const categoryIcons = ['shield', 'bus', 'road', 'target'];
-  const navItems = [{ route: 'dashboard', name: '学习概览', mobile: '概览', icon: 'dashboard' }, { route: 'bank', name: '题库练习', mobile: '题库', icon: 'book' }, { route: 'exam', name: '模拟考试', mobile: '考试', icon: 'exam' }, { route: 'wrong', name: '我的错题', mobile: '错题', icon: 'wrong' }, { route: 'favorites', name: '我的收藏', mobile: '收藏', icon: 'star' }];
-  const routeNames = { dashboard: '学习概览', bank: '题库练习', practice: '题库练习', exam: '模拟考试', result: '考试结果', wrong: '我的错题', favorites: '我的收藏' };
+  const navItems = [{ route: 'dashboard', name: '学习概览', mobile: '概览', icon: 'dashboard' }, { route: 'bank', name: '题库练习', mobile: '题库', icon: 'book' }, { route: 'memorize', name: '背题模式', mobile: '背题', icon: 'list' }, { route: 'exam', name: '模拟考试', mobile: '考试', icon: 'exam' }, { route: 'wrong', name: '我的错题', mobile: '错题', icon: 'wrong' }, { route: 'favorites', name: '我的收藏', mobile: '收藏', icon: 'star' }];
+  const routeNames = { dashboard: '学习概览', bank: '题库练习', memorize: '背题模式', practice: '题库练习', exam: '模拟考试', result: '考试结果', wrong: '我的错题', favorites: '我的收藏' };
   let state;
   let storageWarning = false;
   try {
@@ -45,6 +45,7 @@
   }
   let route = 'dashboard';
   let filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 };
+  let memoryCollection = 'all';
   let examConfig = { category: 'all', count: 30, minutes: 30 };
   let resultWrongOnly = false;
   let toastTimeout;
@@ -119,7 +120,7 @@
     }).join('')}</div></div><aside class="dashboard-side"><section class="panel"><h2>我的学习进度</h2><p class="panel-subtitle">每一道题，都是一步前进。</p><div class="progress-ring" style="--progress:${stats.percent}%"><div class="ring-copy"><strong>${stats.percent}<small>%</small></strong><span>题库完成度</span></div></div><div class="progress-legend"><div><i></i>已练题目<strong>${stats.answered} <small>道</small></strong></div><div><i></i>待探索<strong>${bank.total - stats.answered} <small>道</small></strong></div></div><p class="goal-note">${stats.percent >= 100 ? '全题库已练完，继续巩固错题吧。' : '不必一口气走完，持续就有力量。'}</p></section><section class="panel week-panel"><div class="section-title"><h2>近 7 天练习</h2><span class="week-total">${weekTotal} 次作答</span></div><div class="week-chart" role="img" aria-label="近七天作答：${days.map(day => `星期${day.label} ${day.count} 次`).join('，')}">${days.map(day => `<div class="chart-column ${day.today ? 'today' : ''}"><span class="chart-value">${day.count || ''}</span><div class="chart-bar" style="height:${Math.max(5, day.count / maxCount * 73)}px"></div><small>${day.today ? '今天' : day.label}</small></div>`).join('')}</div><div class="mini-divider"></div><p class="shortcut-note">今天已作答 <strong>${todayLogs.length}</strong> 次。<br>${todayLogs.length ? '坚持学习的你，正在悄悄变强。' : '从一道题开始，慢慢找到状态。'}</p></section></aside></div>`;
   }
   function filteredQuestions() {
-    return core.filterQuestions(bank.questions, { ...filters, collection: ['wrong', 'favorites'].includes(route) ? route : undefined }, state);
+    return core.filterQuestions(bank.questions, { ...filters, status: route === 'memorize' ? 'all' : filters.status, collection: route === 'memorize' ? memoryCollection : ['wrong', 'favorites'].includes(route) ? route : undefined }, state);
   }
   function renderFilters() {
     const chip = (value, text, kind) => `<button class="chip ${filters[kind] === value ? 'active' : ''}" data-action="filter" data-kind="${kind}" data-value="${value}" aria-pressed="${filters[kind] === value}">${text}</button>`;
@@ -134,7 +135,16 @@
     const page = items.slice((filters.page - 1) * pageSize, filters.page * pageSize);
     const emptyTitles = { bank: '没有找到符合条件的题目', wrong: '暂时没有需要复习的错题', favorites: '把重点题目收藏到这里' };
     const emptyDescriptions = { bank: '试试更换分类、题型或搜索关键词。', wrong: '保持这个好状态，开始一轮练习，检验你的掌握程度。', favorites: '在答题页面点击「收藏」，下次就能快速找到它。' };
-    main.innerHTML = `${heading(...titles[route], button('学习设置', 'settings', '', 'secondary small'))}${renderFilters()}<div class="list-toolbar"><p>共 <strong>${items.length}</strong> 道题${filters.search ? ` · 关键词「${escape(filters.search)}」` : ''}</p><div class="list-actions">${button(`${icon('list')} 顺序练习`, 'filtered-sequence', items.length ? '' : 'disabled', 'small')}${button(`${icon('random')} 随机练习`, 'filtered-random', items.length ? '' : 'disabled', 'secondary small')}</div></div>${items.length ? `<div class="question-list">${page.map((question, index) => `<button class="question-row" data-action="open-question" data-id="${question.id}"><span class="question-row-number">${String((filters.page - 1) * pageSize + index + 1).padStart(2, '0')}</span><div class="question-row-body">${tags(question, true)}<p>${escape(question.stem)}</p></div><span class="row-chevron">↗</span></button>`).join('')}</div><div class="pagination">${button('上一页', 'page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon(route === 'wrong' ? 'check' : route === 'favorites' ? 'star' : 'search')}<h2>${emptyTitles[route]}</h2><p>${emptyDescriptions[route]}</p>${button('去题库练习', 'reset-filters')}</div>`}`;
+    main.innerHTML = `${heading(...titles[route], button('学习设置', 'settings', '', 'secondary small'))}${renderFilters()}<div class="list-toolbar"><p>共 <strong>${items.length}</strong> 道题${filters.search ? ` · 关键词「${escape(filters.search)}」` : ''}</p><div class="list-actions">${button(`${icon('book')} 背题模式`, 'filtered-memorize', items.length ? '' : 'disabled', 'secondary small')}${button(`${icon('list')} 顺序练习`, 'filtered-sequence', items.length ? '' : 'disabled', 'small')}${button(`${icon('random')} 随机练习`, 'filtered-random', items.length ? '' : 'disabled', 'secondary small')}</div></div>${items.length ? `<div class="question-list">${page.map((question, index) => `<button class="question-row" data-action="open-question" data-id="${question.id}"><span class="question-row-number">${String((filters.page - 1) * pageSize + index + 1).padStart(2, '0')}</span><div class="question-row-body">${tags(question, true)}<p>${escape(question.stem)}</p></div><span class="row-chevron">↗</span></button>`).join('')}</div><div class="pagination">${button('上一页', 'page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon(route === 'wrong' ? 'check' : route === 'favorites' ? 'star' : 'search')}<h2>${emptyTitles[route]}</h2><p>${emptyDescriptions[route]}</p>${button('去题库练习', 'reset-filters')}</div>`}`;
+  }
+  function memoryPage() {
+    const items = filteredQuestions();
+    const pageSize = 15;
+    const pages = Math.max(1, Math.ceil(items.length / pageSize));
+    filters.page = Math.max(1, Math.min(filters.page, pages));
+    const page = items.slice((filters.page - 1) * pageSize, filters.page * pageSize);
+    const scope = memoryCollection === 'wrong' ? '错题本' : memoryCollection === 'favorites' ? '我的收藏' : '全部题库';
+    main.innerHTML = `${heading('READ & REMEMBER', '题干和答案，一眼记住。', '直接阅读标准答案，按分类、题型或关键词集中背题。')}${renderFilters()}<div class="list-toolbar"><p>${scope} · 共 <strong>${items.length}</strong> 道题 · 每页 ${pageSize} 道</p>${memoryCollection !== 'all' ? button('背全部题库', 'all-memorize', '', 'secondary small') : '<span class="muted memory-note">阅读不会计入作答或改变错题记录</span>'}</div>${page.length ? `<div class="memory-list">${page.map((question, index) => `<article class="panel memory-card" data-question-id="${question.id}"><div class="question-top">${tags(question)}<button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div><h2 class="question-stem">${(filters.page - 1) * pageSize + index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">${icon('check')}标准答案：${answerLabel(question, question.answer)}</div>${question.type !== 'boolean' ? question.answer.map(key => `<p data-answer-key="${key}"><strong>${key}.</strong> ${escape(question.options.find(option => option.key === key).text)}</p>`).join('') : ''}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`).join('')}</div><div class="pagination">${button('上一页', 'memory-page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'memory-page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon('book')}<h2>没有符合条件的题目</h2><p>更换筛选条件，或返回全部题库继续背题。</p>${button('背全部题库', 'all-memorize')}</div>`}`;
   }
   function newSession(ids, options = {}) {
     if (!ids.length) { toast('当前没有可练习的题目'); return; }
@@ -215,6 +225,7 @@
     renderNav();
     if (route === 'dashboard') dashboard();
     else if (['bank', 'wrong', 'favorites'].includes(route)) questionList();
+    else if (route === 'memorize') memoryPage();
     else if (route === 'practice') sessionView();
     else if (route === 'exam') examPage();
     else if (route === 'result') resultPage();
@@ -277,7 +288,10 @@
   }
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-action]');
-    if (!target || target.disabled) return;
+    if (!target || target.disabled) {
+      if (event.target.closest('a[href="#memorize"]')) { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; if (route === 'memorize') render(); }
+      return;
+    }
     const action = target.dataset.action;
     if (action === 'close-dialog') { dialog.close(); dialogCallback = null; }
     else if (action === 'confirm-dialog') { const callback = dialogCallback; dialogCallback = null; dialog.close(); callback?.(); }
@@ -289,7 +303,10 @@
       newSession(core.shuffle(unlearned.length ? unlearned : bank.questions).slice(0, 20).map(question => question.id), { title: '每日练习 · 一点一滴的进步' });
     }
     else if (action === 'open-category') { filters = { category: target.dataset.id, type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
-    else if (action === 'filter') { filters[target.dataset.kind] = target.dataset.value; filters.page = 1; questionList(); }
+    else if (action === 'filter') { filters[target.dataset.kind] = target.dataset.value; filters.page = 1; route === 'memorize' ? memoryPage() : questionList(); }
+    else if (action === 'filtered-memorize') { memoryCollection = ['wrong', 'favorites'].includes(route) ? route : 'all'; filters.status = 'all'; filters.page = 1; navigate('memorize'); }
+    else if (action === 'all-memorize') { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('memorize'); }
+    else if (action === 'memory-page') { filters.page = Number(target.dataset.value); memoryPage(); window.scrollTo(0, 0); }
     else if (action === 'page') { filters.page = Number(target.dataset.value); questionList(); window.scrollTo(0, 0); }
     else if (action === 'reset-filters') { filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
     else if (['filtered-sequence', 'filtered-random', 'open-question'].includes(action)) {
@@ -335,7 +352,7 @@
       filters = { category: 'all', type: 'all', status: 'all', search, page: 1 };
       navigate('bank');
     }
-    if (event.target.id === 'list-search-form') { event.preventDefault(); filters.search = document.getElementById('list-search').value.trim(); filters.page = 1; questionList(); }
+    if (event.target.id === 'list-search-form') { event.preventDefault(); filters.search = document.getElementById('list-search').value.trim(); filters.page = 1; route === 'memorize' ? memoryPage() : questionList(); }
   });
   document.addEventListener('change', async event => {
     const target = event.target;
