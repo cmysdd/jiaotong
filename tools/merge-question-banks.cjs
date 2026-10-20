@@ -1,0 +1,10 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const competition = JSON.parse(fs.readFileSync(path.join(root, '.source', 'competition-bank.json'), 'utf8'));
+const written = JSON.parse(fs.readFileSync(path.join(root, '.source', 'written-bank.json'), 'utf8'));
+const prepare = (bank, examType, name, title) => ({ id: examType, name, title, total: bank.questions.length, categories: bank.categories.map(category => ({ ...category, examType })), questions: bank.questions.map(question => ({ ...question, examType })) });
+const examTypes = [prepare(competition, 'competition', '竞赛题库', '2026年知识竞赛题库'), prepare(written, 'written', '笔试题库', '交通运输系统笔试题库')];
+const bank = { version: 2, title: '交通运输知识题库', total: examTypes.reduce((total, item) => total + item.total, 0), examTypes, categories: examTypes.flatMap(item => item.categories), questions: examTypes.flatMap(item => item.questions) };
+fs.writeFileSync(path.join(root, 'data', 'questions.js'), `/* Generated from the competition and written question banks. */\nwindow.QUESTION_BANK = ${JSON.stringify(bank, null, 2)};\n`);
+console.log(JSON.stringify({ total: bank.total, examTypes: examTypes.map(item => ({ id: item.id, name: item.name, total: item.total })) }, null, 2));

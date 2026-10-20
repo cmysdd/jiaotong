@@ -7,7 +7,7 @@
     "start": "node tools/serve.cjs",
     "build": "node tools/build.cjs",
     "test": "node --test tests/quiz.test.cjs",
-    "parse": "node tools/parse-question-bank.cjs"
+    "parse": "node tools/parse-question-bank.cjs && node tools/parse-written-bank.cjs && node tools/merge-question-banks.cjs"
   },
   "engines": { "node": ">=18" }
 }

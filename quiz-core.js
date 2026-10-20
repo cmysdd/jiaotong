@@ -59,8 +59,9 @@
       return { id, selected: [...selected], correct: recordAnswer(state, question, selected, 'exam', now) };
     });
     const correct = details.filter(detail => detail.correct).length;
-    const result = { id: session.id, total: details.length, correct, unanswered: details.filter(detail => !detail.selected.length).length, score: Math.round(correct / details.length * 100), elapsed: Math.min(Math.max(0, Math.round((now - session.startedAt) / 1000)), session.minutes * 60), finishedAt: now, details };
-    state.exams.unshift({ id: result.id, total: result.total, correct: result.correct, score: result.score, finishedAt: now, elapsed: result.elapsed });
+    const examType = session.examType || questionMap.get(session.ids[0])?.examType || 'competition';
+    const result = { id: session.id, examType, total: details.length, correct, unanswered: details.filter(detail => !detail.selected.length).length, score: Math.round(correct / details.length * 100), elapsed: Math.min(Math.max(0, Math.round((now - session.startedAt) / 1000)), session.minutes * 60), finishedAt: now, details };
+    state.exams.unshift({ id: result.id, examType, total: result.total, correct: result.correct, score: result.score, finishedAt: now, elapsed: result.elapsed });
     state.exams = state.exams.slice(0, 20);
     state.lastResult = result;
     state.session = null;
@@ -77,7 +78,7 @@
     }
     state.favorites = [...new Set(Array.isArray(input.favorites) ? input.favorites.filter(id => map.has(id)) : [])];
     state.logs = (Array.isArray(input.logs) ? input.logs : []).filter(log => map.has(log.questionId) && typeof log.correct === 'boolean' && Number.isFinite(log.at)).slice(-5000).map(log => ({ questionId: log.questionId, correct: log.correct, at: log.at, mode: log.mode === 'exam' ? 'exam' : 'practice' }));
-    state.exams = (Array.isArray(input.exams) ? input.exams : []).filter(exam => exam && typeof exam.id === 'string' && Number.isFinite(exam.score) && exam.score >= 0 && exam.score <= 100 && Number.isFinite(exam.finishedAt) && Number.isFinite(exam.total) && exam.total > 0).slice(0, 20).map(exam => ({ id: exam.id, total: exam.total, correct: exam.correct, score: exam.score, finishedAt: exam.finishedAt, elapsed: exam.elapsed }));
+    state.exams = (Array.isArray(input.exams) ? input.exams : []).filter(exam => exam && typeof exam.id === 'string' && Number.isFinite(exam.score) && exam.score >= 0 && exam.score <= 100 && Number.isFinite(exam.finishedAt) && Number.isFinite(exam.total) && exam.total > 0).slice(0, 20).map(exam => ({ id: exam.id, examType: typeof exam.examType === 'string' ? exam.examType : 'competition', total: exam.total, correct: exam.correct, score: exam.score, finishedAt: exam.finishedAt, elapsed: exam.elapsed }));
     state.settings.autoNext = input.settings?.autoNext === true;
     const session = input.session;
     if (session && typeof session.id === 'string' && ['practice', 'exam'].includes(session.kind) && Array.isArray(session.ids) && session.ids.length && session.ids.every(id => map.has(id)) && new Set(session.ids).size === session.ids.length && Number.isInteger(session.index) && session.index >= 0 && session.index < session.ids.length && Number.isFinite(session.startedAt) && (session.kind !== 'exam' || (Number.isFinite(session.deadline) && Number.isFinite(session.minutes) && session.minutes > 0))) {
@@ -87,13 +88,13 @@
         if (validChoices(id, session.answers?.[id])) answers[id] = [...new Set(session.answers[id])];
         if (session.kind === 'practice' && typeof session.submitted?.[id] === 'boolean' && answers[id]?.length) submitted[id] = sameAnswer(answers[id], map.get(id).answer);
       }
-      state.session = { id: session.id, kind: session.kind, ids: [...session.ids], index: session.index, answers, submitted, startedAt: session.startedAt, title: typeof session.title === 'string' ? session.title.slice(0, 100) : '继续练习', deadline: session.deadline, minutes: session.minutes };
+      state.session = { id: session.id, kind: session.kind, examType: typeof session.examType === 'string' ? session.examType : map.get(session.ids[0]).examType || 'competition', ids: [...session.ids], index: session.index, answers, submitted, startedAt: session.startedAt, title: typeof session.title === 'string' ? session.title.slice(0, 100) : '继续练习', deadline: session.deadline, minutes: session.minutes };
     }
     const result = input.lastResult;
     if (result && typeof result.id === 'string' && Number.isFinite(result.finishedAt) && Number.isFinite(result.elapsed) && Array.isArray(result.details) && result.details.length && new Set(result.details.map(detail => detail.id)).size === result.details.length && result.details.every(detail => map.has(detail.id) && validChoices(detail.id, detail.selected))) {
       const details = result.details.map(detail => ({ id: detail.id, selected: [...detail.selected], correct: sameAnswer(detail.selected, map.get(detail.id).answer) }));
       const correct = details.filter(detail => detail.correct).length;
-      state.lastResult = { id: result.id, total: details.length, correct, unanswered: details.filter(detail => !detail.selected.length).length, score: Math.round(correct / details.length * 100), elapsed: result.elapsed, finishedAt: result.finishedAt, details };
+      state.lastResult = { id: result.id, examType: typeof result.examType === 'string' ? result.examType : map.get(result.details[0].id).examType || 'competition', total: details.length, correct, unanswered: details.filter(detail => !detail.selected.length).length, score: Math.round(correct / details.length * 100), elapsed: result.elapsed, finishedAt: result.finishedAt, details };
     }
     return state;
   }

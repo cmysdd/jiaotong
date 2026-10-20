@@ -70,8 +70,9 @@ if (errors.length) {
   console.error(JSON.stringify(errors, null, 2));
   process.exit(1);
 }
-const bank = { version: 1, title: '2026年知识竞赛题库', sourceFile: '2026年知识竞赛题库.wps', sourceSha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, '2026年知识竞赛题库.wps'))).digest('hex'), total: questions.length, categories, questions };
+const bank = { version: 1, examType: 'competition', id: 'competition', name: '竞赛题库', title: '2026年知识竞赛题库', sourceFile: '2026年知识竞赛题库.wps', sourceSha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, '2026年知识竞赛题库.wps'))).digest('hex'), total: questions.length, categories, questions: questions.map(question => ({ ...question, examType: 'competition' })) };
 fs.mkdirSync(path.join(root, 'data'), { recursive: true });
-fs.writeFileSync(path.join(root, 'data', 'questions.js'), `/* Generated from the supplied question bank. Run tools/parse-question-bank.cjs to regenerate. */\nwindow.QUESTION_BANK = ${JSON.stringify(bank, null, 2)};\n`);
+fs.writeFileSync(path.join(root, '.source', 'competition-bank.json'), JSON.stringify(bank, null, 2));
+fs.writeFileSync(path.join(root, 'data', 'questions.js'), `/* Generated from the supplied competition question bank. Run npm run parse to regenerate both banks. */\nwindow.QUESTION_BANK = ${JSON.stringify(bank, null, 2)};\n`);
 fs.writeFileSync(path.join(root, '.source', 'audit.json'), JSON.stringify({ total: bank.total, sourceSha256: bank.sourceSha256, categories, errors }, null, 2));
 console.log(JSON.stringify({ total: bank.total, categories }, null, 2));

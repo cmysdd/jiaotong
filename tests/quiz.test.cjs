@@ -6,7 +6,9 @@ const vm = require('node:vm');
 const core = require('../quiz-core.js');
 const context = { window: {} };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'data', 'questions.js'), 'utf8'), context);
-const bank = JSON.parse(JSON.stringify(context.window.QUESTION_BANK));
+const fullBank = JSON.parse(JSON.stringify(context.window.QUESTION_BANK));
+const bank = fullBank.examTypes.find(item => item.id === 'competition');
+const writtenBank = fullBank.examTypes.find(item => item.id === 'written');
 const map = new Map(bank.questions.map(question => [question.id, question]));
 
 test('all 308 source questions have unique IDs and complete valid answers', () => {
@@ -24,6 +26,16 @@ test('all 308 source questions have unique IDs and complete valid answers', () =
     if (question.type === 'multiple') assert.ok(question.answer.length > 1);
     else assert.equal(question.answer.length, 1);
   }
+});
+
+test('written bank is a separate exam type with all supplied subjects and question types', () => {
+  assert.equal(writtenBank.total, 2188);
+  assert.equal(writtenBank.questions.length, 2188);
+  assert.equal(writtenBank.categories.length, 7);
+  assert.deepEqual(Object.fromEntries(['single', 'multiple', 'boolean'].map(type => [type, writtenBank.questions.filter(question => question.type === type).length])), { single: 796, multiple: 687, boolean: 705 });
+  assert.deepEqual(writtenBank.categories.map(category => category.name).sort(), ['安全生产法', '地方海事', '工程质量监督', '路政', '水运', '运政', '综合类'].sort());
+  assert.ok(writtenBank.questions.every(question => question.examType === 'written' && question.categoryName));
+  assert.ok(writtenBank.questions.some(question => question.type === 'multiple' && question.answer.length > 1));
 });
 
 test('source duplicate numbers are retained as distinct questions', () => {
