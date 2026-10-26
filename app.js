@@ -58,6 +58,7 @@
   let nextTimeout;
   let memoryObserver;
   let memorySegmentLoader;
+  let memoryBookmarkIndex = null;
   let memoryRestorePosition = null;
   let memoryRestoreActive = false;
   let memorySaveFrame = 0;
@@ -197,8 +198,7 @@
     // filter button at the top of the page.
     const targetIndex = position.maxIndex ?? position.anchorIndex;
     requestAnimationFrame(() => {
-      const segment = targetIndex == null ? null : document.getElementById(`memory-segment-${Math.floor(targetIndex / 30)}`);
-      memorySegmentLoader?.(segment);
+      loadMemorySegmentsThrough(targetIndex);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const target = targetIndex == null ? null : document.getElementById(`memory-question-${targetIndex}`);
         if (!target) { window.scrollTo(0, position.scrollY); memoryRestoreActive = false; return; }
@@ -312,8 +312,7 @@
     return `<nav class="memory-jump-bar" aria-label="背题快速跳转"><strong>快速跳转</strong><div class="memory-jump-scroll">${ranges.join('')}</div></nav>`;
   }
   function memoryCardMarkup(question, index) {
-    const memoryPosition = storedMemoryPosition();
-    const bookmarked = memoryPosition?.bookmarkIndex === index;
+    const bookmarked = memoryBookmarkIndex === index;
     const optionText = key => question.options.find(option => option.key === key)?.text || `选项 ${key}`;
     const answerOptions = question.type === 'multiple' ? question.options : question.answer.map(key => ({ key, text: optionText(key) }));
     const optionsMarkup = question.type === 'boolean' ? '' : answerOptions.map(option => {
@@ -338,6 +337,7 @@
     memoryObserver = null;
     memorySegmentLoader = null;
     const items = filteredQuestions();
+    memoryBookmarkIndex = storedMemoryPosition()?.bookmarkIndex ?? null;
     filters.page = 1;
     const scope = memoryCollection === 'wrong' ? '错题本' : memoryCollection === 'favorites' ? '我的收藏' : '全部题库';
     const segmentSize = 30;
@@ -365,6 +365,13 @@
       main.querySelectorAll('.memory-segment').forEach(segment => memoryObserver.observe(segment));
     }
     restoreMemoryPosition();
+  }
+  function loadMemorySegmentsThrough(index) {
+    if (!Number.isInteger(index) || index < 0 || !memorySegmentLoader) return;
+    const targetSegment = Math.floor(index / 30);
+    for (let segmentIndex = 0; segmentIndex <= targetSegment; segmentIndex += 1) {
+      memorySegmentLoader(document.getElementById(`memory-segment-${segmentIndex}`));
+    }
   }
   function renderMemoryScope(position = null) {
     memoryRestorePosition = position;
@@ -517,6 +524,7 @@
     if (!Number.isInteger(index) || index < 0) return;
     const saved = storedMemoryPosition() || {};
     const nextBookmark = saved.bookmarkIndex === index ? null : index;
+    memoryBookmarkIndex = nextBookmark;
     saveMemoryView({ ...currentMemoryPosition(), bookmarkIndex: nextBookmark });
     main.querySelectorAll('.memory-bookmark-button').forEach(button => {
       const active = nextBookmark != null && Number(button.dataset.index) === nextBookmark;
@@ -565,7 +573,7 @@
     else if (action === 'memory-jump') {
       const index = Number(target.dataset.index);
       const segment = document.getElementById(`memory-segment-${Math.floor(index / 30)}`);
-      memorySegmentLoader?.(segment);
+      loadMemorySegmentsThrough(index);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const card = document.getElementById(`memory-question-${index}`);
         const destination = card || segment;
