@@ -36,7 +36,11 @@ function answerFromText(text, type) {
   return { answer: keys, body };
 }
 function optionLines(body) {
-  const lines = body.split('\n').map(line => clean(line).replace(/(?<=[\u4e00-\u9fff）)])([A-G])(?=[：:、.．)])/g, ' $1')).filter(Boolean);
+  const lines = body.split('\n').map(line => clean(line)
+    .replace(/^([A-G])(?=[\u4e00-\u9fff（(])/, '$1 ')
+    .replace(/(?<=[\u4e00-\u9fff）)])([A-G])(?=[\u4e00-\u9fff（(])/g, ' $1')
+    .replace(/(?<=\d)([A-G])(?=[.:：、)]?\d)/g, ' $1')
+    .replace(/(?<=[\u4e00-\u9fff）)])([A-G])(?=[：:、.．)])/g, ' $1')).filter(Boolean);
   const options = [];
   let stemLines = [];
   let current = null;
@@ -54,6 +58,14 @@ function optionLines(body) {
       }
     } else if (current) current.text = clean(`${current.text} ${line}`);
     else stemLines.push(line);
+  }
+  if (options.length && stemLines.length > 1) {
+    const leadingOptions = stemLines.slice(1).map((text, index) => ({ key: String.fromCharCode(65 + index), text: clean(text) }));
+    stemLines = stemLines.slice(0, 1);
+    options.unshift(...leadingOptions);
+  } else if (!options.length && lines.length > 1) {
+    stemLines = [lines[0]];
+    options.push(...lines.slice(1).map((text, index) => ({ key: String.fromCharCode(65 + index), text: clean(text) })));
   }
   return { stem: clean(stemLines.join(' ')), options };
 }
@@ -79,6 +91,15 @@ function parseFile(file) {
     }
     let body = parsedAnswer.body;
     let parsed = type === 'boolean' ? { stem: clean(body), options: [{ key: 'T', text: '正确' }, { key: 'F', text: '错误' }] } : optionLines(body);
+    if (type !== 'boolean' && parsed.options.length && parsedAnswer.answer.some(key => !parsed.options.some(option => option.key === key))) {
+      const missing = parsedAnswer.answer.find(key => !parsed.options.some(option => option.key === key));
+      const last = parsed.options[parsed.options.length - 1];
+      const split = last.text.match(/^(.+?)\s+([^\s].*)$/);
+      if (missing && split && !parsed.options.some(option => option.key === missing)) {
+        last.text = clean(split[1]);
+        parsed.options.push({ key: missing, text: clean(split[2]) });
+      }
+    }
     if (type !== 'boolean' && parsed.options.length < 2) errors.push({ file, category: metadata.categoryName, type, number: current.number, reason: 'Fewer than two options', text: body });
     if (type !== 'boolean' && parsed.options.some(option => !option.text)) errors.push({ file, category: metadata.categoryName, type, number: current.number, reason: 'Empty option', text: body });
     if (parsedAnswer.answer.some(key => !parsed.options.some(option => option.key === key))) errors.push({ file, category: metadata.categoryName, type, number: current.number, reason: 'Answer missing from options', text: body, answer: parsedAnswer.answer });

@@ -56,6 +56,8 @@
   let resultWrongOnly = false;
   let toastTimeout;
   let nextTimeout;
+  let memoryObserver;
+  let memorySegmentLoader;
   let dialogCallback = null;
   const dialog = document.getElementById('app-dialog');
   function currentExam() { return examTypeMap.get(activeExamType) || { id: activeExamType, name: activeExamType === 'written' ? '笔试题库' : '竞赛题库', total: 0, categories: [] }; }
@@ -158,6 +160,19 @@
     const chip = (value, text, kind) => `<button class="chip ${filters[kind] === value ? 'active' : ''}" data-action="filter" data-kind="${kind}" data-value="${value}" aria-pressed="${filters[kind] === value}">${text}</button>`;
     return `<section class="filter-panel" aria-label="筛选题目"><div class="filter-row"><span class="filter-label">分类</span>${chip('all', '全部分类', 'category')}${currentCategories().map(category => chip(category.id, category.name, 'category')).join('')}</div><div class="filter-row"><span class="filter-label">题型</span>${chip('all', '全部题型', 'type')}${Object.entries(typeNames).map(([value, text]) => chip(value, text, 'type')).join('')}${route === 'bank' ? `${chip('all', '全部状态', 'status')}${chip('new', '未练过', 'status')}` : ''}<form class="filter-search" id="list-search-form">${icon('search')}<input id="list-search" aria-label="筛选题目关键词" placeholder="输入关键词后按回车" value="${escape(filters.search)}"></form></div></section>`;
   }
+  function memoryJumpBar(count) {
+    if (!count) return '';
+    const ranges = [];
+    for (let start = 0; start < count; start += 30) {
+      const end = Math.min(start + 30, count);
+      ranges.push(`<button class="memory-jump" data-action="memory-jump" data-index="${start}">${start + 1}-${end}题</button>`);
+    }
+    return `<nav class="memory-jump-bar" aria-label="背题快速跳转"><strong>快速跳转</strong><div class="memory-jump-scroll">${ranges.join('')}</div></nav>`;
+  }
+  function memoryCardMarkup(question, index) {
+    const optionText = key => question.options.find(option => option.key === key)?.text || `选项 ${key}`;
+    return `<article class="panel memory-card" id="memory-question-${index}" data-memory-index="${index}" data-question-id="${question.id}"><div class="question-top">${tags(question)}<button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div><h2 class="question-stem">${index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">标准答案：${question.type === 'boolean' ? `${answerLabel(question, question.answer)} ${question.answer[0] === 'T' ? '✓' : '✕'}` : answerLabel(question, question.answer)}</div>${question.type !== 'boolean' ? question.answer.map(key => `<p data-answer-key="${key}"><strong>${key}.</strong> ${escape(optionText(key))}</p>`).join('') : ''}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`;
+  }
   function questionList() {
     const titles = { bank: ['QUESTION BANK', '把知识，练成你的实力。', `${currentExam().name} · ${currentExam().total} 道题已就绪。选择一个分类，或从头开始。`], wrong: ['REVIEW & IMPROVE', '再练一次，就更近一步。', `${currentExam().name}的错题会自动收录，再次答对后移出错题本。`], favorites: ['YOUR COLLECTION', '值得多看一眼的知识。', `当前收藏可跨考试类型保存，正在查看${currentExam().name}。`] };
     const items = filteredQuestions();
@@ -170,14 +185,37 @@
     main.innerHTML = `${heading(...titles[route], `<div class="heading-tools">${switcher()}${button('学习设置', 'settings', '', 'secondary small')}</div>`)}${renderFilters()}<div class="list-toolbar"><p>共 <strong>${items.length}</strong> 道题${filters.search ? ` · 关键词「${escape(filters.search)}」` : ''}</p><div class="list-actions">${button(`${icon('book')} 背题模式`, 'filtered-memorize', items.length ? '' : 'disabled', 'secondary small')}${button(`${icon('list')} 顺序练习`, 'filtered-sequence', items.length ? '' : 'disabled', 'small')}${button(`${icon('random')} 随机练习`, 'filtered-random', items.length ? '' : 'disabled', 'secondary small')}</div></div>${items.length ? `<div class="question-list">${page.map((question, index) => `<button class="question-row" data-action="open-question" data-id="${question.id}"><span class="question-row-number">${String((filters.page - 1) * pageSize + index + 1).padStart(2, '0')}</span><div class="question-row-body">${tags(question, true)}<p>${escape(question.stem)}</p></div><span class="row-chevron">↗</span></button>`).join('')}</div><div class="pagination">${button('上一页', 'page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon(route === 'wrong' ? 'check' : route === 'favorites' ? 'star' : 'search')}<h2>${emptyTitles[route]}</h2><p>${emptyDescriptions[route]}</p>${button('去题库练习', 'reset-filters')}</div>`}`;
   }
   function memoryPage() {
+    memoryObserver?.disconnect();
+    memoryObserver = null;
+    memorySegmentLoader = null;
     const items = filteredQuestions();
-    const pageSize = 15;
-    const pages = Math.max(1, Math.ceil(items.length / pageSize));
-    filters.page = Math.max(1, Math.min(filters.page, pages));
+    filters.page = 1;
     saveMemoryView();
-    const page = items.slice((filters.page - 1) * pageSize, filters.page * pageSize);
     const scope = memoryCollection === 'wrong' ? '错题本' : memoryCollection === 'favorites' ? '我的收藏' : '全部题库';
-    main.innerHTML = `${heading('READ & REMEMBER', '题干和答案，一眼记住。', '直接阅读标准答案，按分类、题型或关键词集中背题。', `<div class="heading-tools">${switcher()}</div>`)}${renderFilters()}<div class="list-toolbar"><p>${scope} · 共 <strong>${items.length}</strong> 道题 · 每页 ${pageSize} 道</p>${memoryCollection !== 'all' ? button('背全部题库', 'all-memorize', '', 'secondary small') : '<span class="muted memory-note">阅读不会计入作答或改变错题记录</span>'}</div>${page.length ? `<div class="memory-list">${page.map((question, index) => `<article class="panel memory-card" data-question-id="${question.id}"><div class="question-top">${tags(question)}<button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div><h2 class="question-stem">${(filters.page - 1) * pageSize + index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">标准答案：${question.type === 'boolean' ? `${answerLabel(question, question.answer)} ${question.answer[0] === 'T' ? '✓' : '✕'}` : answerLabel(question, question.answer)}</div>${question.type !== 'boolean' ? question.answer.map(key => `<p data-answer-key="${key}"><strong>${key}.</strong> ${escape(question.options.find(option => option.key === key).text)}</p>`).join('') : ''}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`).join('')}</div><div class="pagination">${button('上一页', 'memory-page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'memory-page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon('book')}<h2>没有符合条件的题目</h2><p>更换筛选条件，或返回全部题库继续背题。</p>${button('背全部题库', 'all-memorize')}</div>`}`;
+    const segmentSize = 30;
+    const segmentCount = Math.ceil(items.length / segmentSize);
+    const eagerSegments = items.length <= 500 ? segmentCount : Math.min(2, segmentCount);
+    const segmentMarkup = Array.from({ length: segmentCount }, (_, segmentIndex) => {
+      const start = segmentIndex * segmentSize;
+      const count = Math.min(segmentSize, items.length - start);
+      const loaded = segmentIndex < eagerSegments;
+      const content = loaded ? items.slice(start, start + count).map((question, offset) => memoryCardMarkup(question, start + offset)).join('') : `<div class="memory-segment-placeholder" style="min-height:${count * 250}px">滚动到这里加载第 ${start + 1}-${start + count} 题</div>`;
+      return `<section class="memory-segment ${loaded ? 'loaded' : ''}" id="memory-segment-${segmentIndex}" data-memory-start="${start}" data-memory-count="${count}" data-memory-loaded="${loaded}">${content}</section>`;
+    }).join('');
+    main.innerHTML = `${heading('READ & REMEMBER', '题干和答案，一眼记住。', '直接阅读标准答案，按分类、题型或关键词集中背题。', `<div class="heading-tools">${switcher()}</div>`)}${renderFilters()}<div class="list-toolbar"><p>${scope} · 共 <strong>${items.length}</strong> 道题 · 连续阅读</p>${memoryCollection !== 'all' ? button('背全部题库', 'all-memorize', '', 'secondary small') : '<span class="muted memory-note">阅读不会计入作答或改变错题记录</span>'}</div>${items.length ? `${memoryJumpBar(items.length)}<div class="memory-list">${segmentMarkup}</div>` : `<div class="empty-state">${icon('book')}<h2>没有符合条件的题目</h2><p>更换筛选条件，或返回全部题库继续背题。</p>${button('背全部题库', 'all-memorize')}</div>`}`;
+    const loadSegment = segment => {
+      if (!segment || segment.dataset.memoryLoaded === 'true') return;
+      const start = Number(segment.dataset.memoryStart);
+      const count = Number(segment.dataset.memoryCount);
+      segment.innerHTML = items.slice(start, start + count).map((question, offset) => memoryCardMarkup(question, start + offset)).join('');
+      segment.dataset.memoryLoaded = 'true';
+      segment.classList.add('loaded');
+    };
+    memorySegmentLoader = loadSegment;
+    if (items.length > 500 && 'IntersectionObserver' in window) {
+      memoryObserver = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) loadSegment(entry.target); }), { rootMargin: '900px 0px' });
+      main.querySelectorAll('.memory-segment').forEach(segment => memoryObserver.observe(segment));
+    }
   }
   function newSession(ids, options = {}) {
     if (!ids.length) { toast('当前没有可练习的题目'); return; }
@@ -340,6 +378,7 @@
     else if (action === 'filtered-memorize') { memoryCollection = ['wrong', 'favorites'].includes(route) ? route : 'all'; filters.status = 'all'; filters.page = 1; saveMemoryView(); navigate('memorize'); }
     else if (action === 'all-memorize') { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; saveMemoryView(); navigate('memorize'); }
     else if (action === 'memory-page') { filters.page = Number(target.dataset.value); saveMemoryView(); memoryPage(); window.scrollTo(0, 0); }
+    else if (action === 'memory-jump') { const index = Number(target.dataset.index); const segment = document.getElementById(`memory-segment-${Math.floor(index / 30)}`); memorySegmentLoader?.(segment); segment?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     else if (action === 'page') { filters.page = Number(target.dataset.value); questionList(); window.scrollTo(0, 0); }
     else if (action === 'reset-filters') { filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
     else if (['filtered-sequence', 'filtered-random', 'open-question'].includes(action)) {
