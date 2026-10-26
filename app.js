@@ -90,15 +90,20 @@
   function storedMemoryPosition(selection = memorySelection()) {
     const record = readMemoryStore()[activeExamType];
     if (!record || typeof record !== 'object') return null;
+    const legacyMatches = memoryScopeKey(record) === memoryScopeKey(selection);
+    const legacy = legacyMatches ? normalizeMemoryPosition(record) : null;
     const scoped = record.positions?.[memoryScopeKey(selection)];
     if (scoped) {
       const position = normalizeMemoryPosition(scoped);
-      return position;
+      if (!position) return legacy;
+      // Older saves kept one position at the record root. Keep its maximum
+      // as a fallback when a newer scoped position is also present.
+      const maxIndex = [position.maxIndex, position.anchorIndex, legacy?.maxIndex, legacy?.anchorIndex]
+        .filter(index => Number.isInteger(index))
+        .reduce((max, index) => Math.max(max, index), -1);
+      return { ...position, maxIndex: maxIndex >= 0 ? maxIndex : null };
     }
-    const legacyMatches = memoryScopeKey(record) === memoryScopeKey(selection);
-    if (!legacyMatches) return null;
-    const position = normalizeMemoryPosition(record);
-    return position;
+    return legacy;
   }
   function currentMemoryPosition() {
     const cards = [...main.querySelectorAll('.memory-card')];
@@ -127,8 +132,11 @@
       const positions = { ...(previous.positions || {}) };
       const scopeKey = memoryScopeKey(selection);
       const nextPosition = normalizeMemoryPosition(position);
-      const previousPosition = normalizeMemoryPosition(positions[scopeKey]) || (memoryScopeKey(previous) === scopeKey ? normalizeMemoryPosition(previous) : null);
-      const previousMax = previousPosition?.maxIndex ?? previousPosition?.anchorIndex ?? null;
+      const scopedPrevious = normalizeMemoryPosition(positions[scopeKey]);
+      const legacyPrevious = memoryScopeKey(previous) === scopeKey ? normalizeMemoryPosition(previous) : null;
+      const previousMax = [scopedPrevious?.maxIndex, scopedPrevious?.anchorIndex, legacyPrevious?.maxIndex, legacyPrevious?.anchorIndex]
+        .filter(index => Number.isInteger(index))
+        .reduce((max, index) => Math.max(max, index), -1);
       const nextMax = nextPosition?.maxIndex ?? nextPosition?.anchorIndex ?? null;
       const maxIndex = [previousMax, nextMax].filter(index => Number.isInteger(index)).reduce((max, index) => Math.max(max, index), -1);
       const positionToSave = nextPosition ? { ...nextPosition, maxIndex: maxIndex >= 0 ? maxIndex : null } : nextPosition;
