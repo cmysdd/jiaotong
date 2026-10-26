@@ -82,23 +82,40 @@
   function normalizeMemoryPosition(position) {
     if (!position || typeof position !== 'object') return null;
     const anchorIndex = Number.isInteger(position.anchorIndex) && position.anchorIndex >= 0 ? position.anchorIndex : null;
+    const maxIndex = Number.isInteger(position.maxIndex) && position.maxIndex >= 0 ? position.maxIndex : anchorIndex;
     const anchorOffset = Number.isFinite(position.anchorOffset) ? position.anchorOffset : null;
     const scrollY = Number.isFinite(position.scrollY) && position.scrollY >= 0 ? position.scrollY : 0;
-    return { scrollY, anchorIndex, anchorOffset };
+    return { scrollY, anchorIndex, maxIndex, anchorOffset };
   }
   function storedMemoryPosition(selection = memorySelection()) {
     const record = readMemoryStore()[activeExamType];
     if (!record || typeof record !== 'object') return null;
     const scoped = record.positions?.[memoryScopeKey(selection)];
-    if (scoped) return normalizeMemoryPosition(scoped);
+    if (scoped) {
+      const position = normalizeMemoryPosition(scoped);
+      return position;
+    }
     const legacyMatches = memoryScopeKey(record) === memoryScopeKey(selection);
-    return legacyMatches ? normalizeMemoryPosition(record) : null;
+    if (!legacyMatches) return null;
+    const position = normalizeMemoryPosition(record);
+    return position;
   }
   function currentMemoryPosition() {
-    const card = [...main.querySelectorAll('.memory-card')].find(item => item.getBoundingClientRect().bottom > 96);
+    const cards = [...main.querySelectorAll('.memory-card')];
+    const card = cards.find(item => item.getBoundingClientRect().bottom > 96);
+    const visibleCards = cards.filter(item => {
+      const rect = item.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    });
+    const visibleMax = visibleCards.reduce((max, item) => Math.max(max, Number(item.dataset.memoryIndex)), -1);
+    const anchorIndex = card ? Number(card.dataset.memoryIndex) : null;
     return {
       scrollY: Math.max(0, Math.round(window.scrollY)),
-      anchorIndex: card ? Number(card.dataset.memoryIndex) : null,
+      anchorIndex,
+      // Use the first question at the reading position as the current progress.
+      // saveMemoryView merges it with the stored maximum, so scrolling back
+      // never lowers the furthest question already reached.
+      maxIndex: anchorIndex ?? (visibleMax >= 0 ? visibleMax : null),
       anchorOffset: card ? Math.round(card.getBoundingClientRect().top) : null,
     };
   }
@@ -111,8 +128,10 @@
       const scopeKey = memoryScopeKey(selection);
       const nextPosition = normalizeMemoryPosition(position);
       const previousPosition = normalizeMemoryPosition(positions[scopeKey]) || (memoryScopeKey(previous) === scopeKey ? normalizeMemoryPosition(previous) : null);
-      const preserveLastSeen = !memoryForceNextSave && nextPosition?.anchorIndex === 0 && previousPosition?.anchorIndex > 0;
-      const positionToSave = preserveLastSeen ? previousPosition : nextPosition;
+      const previousMax = previousPosition?.maxIndex ?? previousPosition?.anchorIndex ?? null;
+      const nextMax = nextPosition?.maxIndex ?? nextPosition?.anchorIndex ?? null;
+      const maxIndex = [previousMax, nextMax].filter(index => Number.isInteger(index)).reduce((max, index) => Math.max(max, index), -1);
+      const positionToSave = nextPosition ? { ...nextPosition, maxIndex: maxIndex >= 0 ? maxIndex : null } : nextPosition;
       memoryForceNextSave = false;
       positions[scopeKey] = positionToSave;
       saved[activeExamType] = { ...previous, ...selection, positions };
@@ -121,15 +140,16 @@
     } catch { /* Ignore unavailable or malformed optional view state. */ }
   }
   function updateMemoryJumpHistoryButton(position) {
-    if (route !== 'memorize' || position?.anchorIndex == null) return;
+    const historyIndex = position?.maxIndex ?? position?.anchorIndex;
+    if (route !== 'memorize' || historyIndex == null) return;
     const scroll = main.querySelector('.memory-jump-scroll');
     if (!scroll) return;
     let button = scroll.querySelector('.memory-jump-history');
     if (!button) {
-      scroll.insertAdjacentHTML('afterbegin', `<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${position.anchorIndex}">上次看到</button>`);
+      scroll.insertAdjacentHTML('afterbegin', `<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">上次看到</button>`);
       button = scroll.querySelector('.memory-jump-history');
     }
-    button.dataset.index = String(position.anchorIndex);
+    button.dataset.index = String(historyIndex);
   }
   function saveMemorySelection() {
     try {
@@ -159,21 +179,33 @@
     memoryRestorePosition = null;
     if (!position) { memoryRestoreActive = false; return; }
     memoryRestoreActive = true;
+    // Reopen the scope at its furthest recorded question. The maximum is
+    // independent of the temporary scroll position caused by selecting a
+    // filter button at the top of the page.
+    const targetIndex = position.maxIndex ?? position.anchorIndex;
     requestAnimationFrame(() => {
-      const segment = position.anchorIndex == null ? null : document.getElementById(`memory-segment-${Math.floor(position.anchorIndex / 30)}`);
+      const segment = targetIndex == null ? null : document.getElementById(`memory-segment-${Math.floor(targetIndex / 30)}`);
       memorySegmentLoader?.(segment);
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        const target = position.anchorIndex == null ? null : document.getElementById(`memory-question-${position.anchorIndex}`);
+        const target = targetIndex == null ? null : document.getElementById(`memory-question-${targetIndex}`);
         if (!target) { window.scrollTo(0, position.scrollY); memoryRestoreActive = false; return; }
         target.scrollIntoView({ behavior: 'auto', block: 'start' });
-        if (position.anchorOffset != null) window.scrollBy(0, position.anchorOffset - target.getBoundingClientRect().top);
+        // The offset belongs to anchorIndex. When restoring the historical
+        // maximum, use the target's natural top position instead of applying
+        // an offset captured from a different question.
+        if (position.anchorOffset != null && position.anchorIndex === targetIndex) window.scrollBy(0, position.anchorOffset - target.getBoundingClientRect().top);
         memoryRestoreActive = false;
       }));
     });
   }
   function scheduleMemorySave() {
     if (route !== 'memorize' || memoryRestoreActive || memorySaveFrame) return;
-    memorySaveFrame = requestAnimationFrame(() => { memorySaveFrame = 0; saveMemoryView(); });
+    memorySaveFrame = requestAnimationFrame(() => {
+      memorySaveFrame = 0;
+      // A scroll event queued before a filter/scope render must not overwrite
+      // the position that is currently being restored.
+      if (route === 'memorize' && !memoryRestoreActive) saveMemoryView();
+    });
   }
   function sessionExamType(session = state.session) { return session?.examType || questionMap.get(session?.ids?.[0])?.examType || null; }
   function switcher() { return `<div class="exam-switcher" role="tablist" aria-label="考试类型">${(bank.examTypes || []).map(exam => `<button class="exam-tab ${exam.id === activeExamType ? 'active' : ''}" data-action="switch-exam" data-id="${exam.id}" role="tab" aria-selected="${exam.id === activeExamType}">${escape(exam.name)}<small>${exam.total} 题</small></button>`).join('')}</div>`; }
@@ -258,7 +290,8 @@
     if (!count) return '';
     const ranges = [];
     const previous = storedMemoryPosition();
-    if (previous?.anchorIndex != null && previous.anchorIndex < count) ranges.push(`<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${previous.anchorIndex}">上次看到</button>`);
+    const historyIndex = previous?.maxIndex ?? previous?.anchorIndex;
+    if (historyIndex != null && historyIndex < count) ranges.push(`<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">上次看到</button>`);
     for (let start = 0; start < count; start += 30) {
       const end = Math.min(start + 30, count);
       ranges.push(`<button class="memory-jump" data-action="memory-jump" data-index="${start}">${start + 1}-${end}题</button>`);

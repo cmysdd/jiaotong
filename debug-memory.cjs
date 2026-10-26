@@ -1,0 +1,26 @@
+const { chromium } = require('playwright');
+const { spawn } = require('node:child_process');
+const server = spawn(process.execPath, ['-e', "require('./tools/serve.cjs')"], { cwd: __dirname, env: { ...process.env, PORT: '4175' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+(async () => {
+  await new Promise(resolve => server.stdout.once('data', resolve));
+  const browser = await chromium.launch({ executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.goto('http://127.0.0.1:4175/#memorize');
+  await page.locator('.memory-card').first().waitFor();
+  await page.locator('[data-action="switch-exam"][data-id="written"]').click();
+  await page.goto('http://127.0.0.1:4175/#memorize');
+  await page.locator('.memory-card').first().waitFor();
+  await page.locator('[data-action="filter"][data-kind="category"][data-value="written-professional-ecbf2f08"]').click();
+  await page.locator('[data-action="memory-jump"][data-index="150"]').click();
+  await page.waitForTimeout(300);
+  console.log('after jump', await page.evaluate(() => ({ y: scrollY, top: document.querySelector('#memory-question-150')?.getBoundingClientRect().top, store: localStorage.getItem('transport-quiz-memory-view-v1') })));
+  await page.locator('[data-action="filter"][data-kind="category"][data-value="written-professional-89b1545d"]').click();
+  await page.locator('[data-action="filter"][data-kind="category"][data-value="written-professional-ecbf2f08"]').click();
+  await page.waitForTimeout(300);
+  console.log('after switch back', await page.evaluate(() => ({ y: scrollY, top: document.querySelector('#memory-question-150')?.getBoundingClientRect().top, store: localStorage.getItem('transport-quiz-memory-view-v1') })));
+  await page.goto('http://127.0.0.1:4175/#dashboard');
+  await page.goto('http://127.0.0.1:4175/#memorize');
+  await page.waitForTimeout(700);
+  console.log('after reload route', await page.evaluate(() => ({ y: scrollY, top: document.querySelector('#memory-question-150')?.getBoundingClientRect().top, store: localStorage.getItem('transport-quiz-memory-view-v1'), anchor: document.querySelector('#memory-question-150')?.getBoundingClientRect().top })));
+  await browser.close(); server.kill();
+})().catch(error => { console.error(error); server.kill(); process.exitCode = 1; });
