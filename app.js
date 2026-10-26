@@ -7,6 +7,7 @@
   const questionMap = new Map(bank.questions.map(question => [question.id, question]));
   const categoryMap = new Map(bank.categories.map(category => [category.id, category]));
   const examTypeMap = new Map((bank.examTypes || []).map(exam => [exam.id, exam]));
+  const MEMORY_VIEW_KEY = 'transport-quiz-memory-view-v1';
   const typeNames = { single: '单选题', multiple: '多选题', boolean: '判断题' };
   const iconPaths = {
     dashboard: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -60,6 +61,24 @@
   function currentExam() { return examTypeMap.get(activeExamType) || { id: activeExamType, name: activeExamType === 'written' ? '笔试题库' : '竞赛题库', total: 0, categories: [] }; }
   function currentQuestions() { return bank.questions.filter(question => question.examType === activeExamType); }
   function currentCategories() { return currentExam().categories; }
+  function saveMemoryView() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MEMORY_VIEW_KEY) || '{}');
+      saved[activeExamType] = { category: filters.category, type: filters.type, search: filters.search, page: filters.page, collection: memoryCollection };
+      localStorage.setItem(MEMORY_VIEW_KEY, JSON.stringify(saved));
+    } catch { /* Ignore unavailable or malformed optional view state. */ }
+  }
+  function restoreMemoryView() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MEMORY_VIEW_KEY) || '{}');
+      const view = saved?.[activeExamType];
+      if (!view || typeof view !== 'object') return;
+      const category = view.category === 'all' || currentCategories().some(item => item.id === view.category) ? view.category : 'all';
+      const type = ['all', 'single', 'multiple', 'boolean'].includes(view.type) ? view.type : 'all';
+      filters = { ...filters, category, type, status: 'all', search: typeof view.search === 'string' ? view.search.slice(0, 200) : '', page: Number.isInteger(view.page) && view.page > 0 ? view.page : 1 };
+      memoryCollection = ['all', 'wrong', 'favorites'].includes(view.collection) ? view.collection : 'all';
+    } catch { /* Ignore unavailable or malformed optional view state. */ }
+  }
   function sessionExamType(session = state.session) { return session?.examType || questionMap.get(session?.ids?.[0])?.examType || null; }
   function switcher() { return `<div class="exam-switcher" role="tablist" aria-label="考试类型">${(bank.examTypes || []).map(exam => `<button class="exam-tab ${exam.id === activeExamType ? 'active' : ''}" data-action="switch-exam" data-id="${exam.id}" role="tab" aria-selected="${exam.id === activeExamType}">${escape(exam.name)}<small>${exam.total} 题</small></button>`).join('')}</div>`; }
   function selectExamType(id) { if (!examTypeMap.has(id)) return; activeExamType = id; localStorage.setItem('transport-quiz-active-exam', id); filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; memoryCollection = 'all'; examConfig = { category: 'all', count: 30, minutes: 30 }; if (location.hash === '#dashboard') render(); else location.hash = 'dashboard'; }
@@ -155,6 +174,7 @@
     const pageSize = 15;
     const pages = Math.max(1, Math.ceil(items.length / pageSize));
     filters.page = Math.max(1, Math.min(filters.page, pages));
+    saveMemoryView();
     const page = items.slice((filters.page - 1) * pageSize, filters.page * pageSize);
     const scope = memoryCollection === 'wrong' ? '错题本' : memoryCollection === 'favorites' ? '我的收藏' : '全部题库';
     main.innerHTML = `${heading('READ & REMEMBER', '题干和答案，一眼记住。', '直接阅读标准答案，按分类、题型或关键词集中背题。', `<div class="heading-tools">${switcher()}</div>`)}${renderFilters()}<div class="list-toolbar"><p>${scope} · 共 <strong>${items.length}</strong> 道题 · 每页 ${pageSize} 道</p>${memoryCollection !== 'all' ? button('背全部题库', 'all-memorize', '', 'secondary small') : '<span class="muted memory-note">阅读不会计入作答或改变错题记录</span>'}</div>${page.length ? `<div class="memory-list">${page.map((question, index) => `<article class="panel memory-card" data-question-id="${question.id}"><div class="question-top">${tags(question)}<button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div><h2 class="question-stem">${(filters.page - 1) * pageSize + index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">${icon('check')}标准答案：${answerLabel(question, question.answer)}</div>${question.type !== 'boolean' ? question.answer.map(key => `<p data-answer-key="${key}"><strong>${key}.</strong> ${escape(question.options.find(option => option.key === key).text)}</p>`).join('') : ''}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`).join('')}</div><div class="pagination">${button('上一页', 'memory-page', `data-value="${filters.page - 1}" ${filters.page === 1 ? 'disabled' : ''}`, 'secondary small')}<span>${filters.page} / ${pages}</span>${button('下一页', 'memory-page', `data-value="${filters.page + 1}" ${filters.page === pages ? 'disabled' : ''}`, 'secondary small')}</div>` : `<div class="empty-state">${icon('book')}<h2>没有符合条件的题目</h2><p>更换筛选条件，或返回全部题库继续背题。</p>${button('背全部题库', 'all-memorize')}</div>`}`;
@@ -302,10 +322,7 @@
   }
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-action]');
-    if (!target || target.disabled) {
-      if (event.target.closest('a[href="#memorize"]')) { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; if (route === 'memorize') render(); }
-      return;
-    }
+    if (!target || target.disabled) return;
     const action = target.dataset.action;
     if (action === 'close-dialog') { dialog.close(); dialogCallback = null; }
     else if (action === 'confirm-dialog') { const callback = dialogCallback; dialogCallback = null; dialog.close(); callback?.(); }
@@ -319,10 +336,10 @@
       newSession(core.shuffle(unlearned.length ? unlearned : questions).slice(0, 20).map(question => question.id), { title: `${currentExam().name} · 每日练习` });
     }
     else if (action === 'open-category') { filters = { category: target.dataset.id, type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
-    else if (action === 'filter') { filters[target.dataset.kind] = target.dataset.value; filters.page = 1; route === 'memorize' ? memoryPage() : questionList(); }
-    else if (action === 'filtered-memorize') { memoryCollection = ['wrong', 'favorites'].includes(route) ? route : 'all'; filters.status = 'all'; filters.page = 1; navigate('memorize'); }
-    else if (action === 'all-memorize') { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('memorize'); }
-    else if (action === 'memory-page') { filters.page = Number(target.dataset.value); memoryPage(); window.scrollTo(0, 0); }
+    else if (action === 'filter') { filters[target.dataset.kind] = target.dataset.value; filters.page = 1; route === 'memorize' ? (saveMemoryView(), memoryPage()) : questionList(); }
+    else if (action === 'filtered-memorize') { memoryCollection = ['wrong', 'favorites'].includes(route) ? route : 'all'; filters.status = 'all'; filters.page = 1; saveMemoryView(); navigate('memorize'); }
+    else if (action === 'all-memorize') { memoryCollection = 'all'; filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; saveMemoryView(); navigate('memorize'); }
+    else if (action === 'memory-page') { filters.page = Number(target.dataset.value); saveMemoryView(); memoryPage(); window.scrollTo(0, 0); }
     else if (action === 'page') { filters.page = Number(target.dataset.value); questionList(); window.scrollTo(0, 0); }
     else if (action === 'reset-filters') { filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
     else if (['filtered-sequence', 'filtered-random', 'open-question'].includes(action)) {
@@ -368,7 +385,7 @@
       filters = { category: 'all', type: 'all', status: 'all', search, page: 1 };
       navigate('bank');
     }
-    if (event.target.id === 'list-search-form') { event.preventDefault(); filters.search = document.getElementById('list-search').value.trim(); filters.page = 1; route === 'memorize' ? memoryPage() : questionList(); }
+    if (event.target.id === 'list-search-form') { event.preventDefault(); filters.search = document.getElementById('list-search').value.trim(); filters.page = 1; route === 'memorize' ? (saveMemoryView(), memoryPage()) : questionList(); }
   });
   document.addEventListener('change', async event => {
     const target = event.target;
@@ -406,6 +423,7 @@
   function loadRoute() {
     const next = location.hash.slice(1);
     route = Object.hasOwn(routeNames, next) ? next : 'dashboard';
+    if (route === 'memorize') restoreMemoryView();
     if (['wrong', 'favorites'].includes(route)) filters = { ...filters, status: 'all', page: 1 };
     render(); window.scrollTo(0, 0);
   }
