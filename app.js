@@ -83,9 +83,10 @@
     if (!position || typeof position !== 'object') return null;
     const anchorIndex = Number.isInteger(position.anchorIndex) && position.anchorIndex >= 0 ? position.anchorIndex : null;
     const maxIndex = Number.isInteger(position.maxIndex) && position.maxIndex >= 0 ? position.maxIndex : anchorIndex;
+    const bookmarkIndex = Number.isInteger(position.bookmarkIndex) && position.bookmarkIndex >= 0 ? position.bookmarkIndex : null;
     const anchorOffset = Number.isFinite(position.anchorOffset) ? position.anchorOffset : null;
     const scrollY = Number.isFinite(position.scrollY) && position.scrollY >= 0 ? position.scrollY : 0;
-    return { scrollY, anchorIndex, maxIndex, anchorOffset };
+    return { scrollY, anchorIndex, maxIndex, bookmarkIndex, anchorOffset };
   }
   function storedMemoryPosition(selection = memorySelection()) {
     const record = readMemoryStore()[activeExamType];
@@ -101,7 +102,8 @@
       const maxIndex = [position.maxIndex, position.anchorIndex, legacy?.maxIndex, legacy?.anchorIndex]
         .filter(index => Number.isInteger(index))
         .reduce((max, index) => Math.max(max, index), -1);
-      return { ...position, maxIndex: maxIndex >= 0 ? maxIndex : null };
+      const bookmarkIndex = position.bookmarkIndex ?? legacy?.bookmarkIndex ?? null;
+      return { ...position, maxIndex: maxIndex >= 0 ? maxIndex : null, bookmarkIndex };
     }
     return legacy;
   }
@@ -139,7 +141,9 @@
         .reduce((max, index) => Math.max(max, index), -1);
       const nextMax = nextPosition?.maxIndex ?? nextPosition?.anchorIndex ?? null;
       const maxIndex = [previousMax, nextMax].filter(index => Number.isInteger(index)).reduce((max, index) => Math.max(max, index), -1);
-      const positionToSave = nextPosition ? { ...nextPosition, maxIndex: maxIndex >= 0 ? maxIndex : null } : nextPosition;
+      const hasBookmark = Object.prototype.hasOwnProperty.call(position || {}, 'bookmarkIndex');
+      const bookmarkIndex = hasBookmark ? nextPosition?.bookmarkIndex ?? null : scopedPrevious?.bookmarkIndex ?? legacyPrevious?.bookmarkIndex ?? null;
+      const positionToSave = nextPosition ? { ...nextPosition, maxIndex: maxIndex >= 0 ? maxIndex : null, bookmarkIndex } : nextPosition;
       memoryForceNextSave = false;
       positions[scopeKey] = positionToSave;
       saved[activeExamType] = { ...previous, ...selection, positions };
@@ -148,16 +152,17 @@
     } catch { /* Ignore unavailable or malformed optional view state. */ }
   }
   function updateMemoryJumpHistoryButton(position) {
-    const historyIndex = position?.maxIndex ?? position?.anchorIndex;
+    const historyIndex = position?.bookmarkIndex ?? position?.maxIndex ?? position?.anchorIndex;
     if (route !== 'memorize' || historyIndex == null) return;
     const scroll = main.querySelector('.memory-jump-scroll');
     if (!scroll) return;
     let button = scroll.querySelector('.memory-jump-history');
     if (!button) {
-      scroll.insertAdjacentHTML('afterbegin', `<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">上次看到</button>`);
+      scroll.insertAdjacentHTML('afterbegin', `<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">书签</button>`);
       button = scroll.querySelector('.memory-jump-history');
     }
     button.dataset.index = String(historyIndex);
+    button.textContent = '书签';
   }
   function saveMemorySelection() {
     try {
@@ -298,8 +303,8 @@
     if (!count) return '';
     const ranges = [];
     const previous = storedMemoryPosition();
-    const historyIndex = previous?.maxIndex ?? previous?.anchorIndex;
-    if (historyIndex != null && historyIndex < count) ranges.push(`<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">上次看到</button>`);
+    const historyIndex = previous?.bookmarkIndex ?? previous?.maxIndex ?? previous?.anchorIndex;
+    if (historyIndex != null && historyIndex < count) ranges.push(`<button class="memory-jump memory-jump-history" data-action="memory-jump" data-index="${historyIndex}">书签</button>`);
     for (let start = 0; start < count; start += 30) {
       const end = Math.min(start + 30, count);
       ranges.push(`<button class="memory-jump" data-action="memory-jump" data-index="${start}">${start + 1}-${end}题</button>`);
@@ -307,13 +312,15 @@
     return `<nav class="memory-jump-bar" aria-label="背题快速跳转"><strong>快速跳转</strong><div class="memory-jump-scroll">${ranges.join('')}</div></nav>`;
   }
   function memoryCardMarkup(question, index) {
+    const memoryPosition = storedMemoryPosition();
+    const bookmarked = memoryPosition?.bookmarkIndex === index;
     const optionText = key => question.options.find(option => option.key === key)?.text || `选项 ${key}`;
     const answerOptions = question.type === 'multiple' ? question.options : question.answer.map(key => ({ key, text: optionText(key) }));
     const optionsMarkup = question.type === 'boolean' ? '' : answerOptions.map(option => {
       const isAnswer = question.answer.includes(option.key);
       return `<p class="memory-option ${isAnswer ? 'is-answer' : 'not-answer'}" ${isAnswer ? `data-answer-key="${option.key}"` : `data-option-key="${option.key}"`}><strong>${option.key}.</strong> ${escape(option.text)}${question.type === 'multiple' && isAnswer ? '<span class="memory-option-mark">✓ 标准答案</span>' : ''}</p>`;
     }).join('');
-    return `<article class="panel memory-card" id="memory-question-${index}" data-memory-index="${index}" data-question-id="${question.id}"><div class="question-top">${tags(question)}<button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div><h2 class="question-stem">${index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">标准答案：${question.type === 'boolean' ? `${answerLabel(question, question.answer)} ${question.answer[0] === 'T' ? '✓' : '✕'}` : answerLabel(question, question.answer)}</div>${optionsMarkup}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`;
+    return `<article class="panel memory-card" id="memory-question-${index}" data-memory-index="${index}" data-question-id="${question.id}"><div class="question-top">${tags(question)}<div class="memory-card-actions"><button class="memory-bookmark-button ${bookmarked ? 'active' : ''}" data-action="memory-bookmark" data-index="${index}" aria-pressed="${bookmarked}">${bookmarked ? '已书签' : '加书签'}</button><button class="favorite-button ${state.favorites.includes(question.id) ? 'active' : ''}" data-action="favorite" data-id="${question.id}" aria-pressed="${state.favorites.includes(question.id)}">${icon('star')}${state.favorites.includes(question.id) ? '已收藏' : '收藏'}</button></div></div><h2 class="question-stem">${index + 1}. ${escape(question.stem)}</h2><div class="memory-answer"><div class="memory-answer-label">标准答案：${question.type === 'boolean' ? `${answerLabel(question, question.answer)} ${question.answer[0] === 'T' ? '✓' : '✕'}` : answerLabel(question, question.answer)}</div>${optionsMarkup}</div><p class="source-note">${escape(sourceLabel(question))}</p></article>`;
   }
   function questionList() {
     const titles = { bank: ['QUESTION BANK', '把知识，练成你的实力。', `${currentExam().name} · ${currentExam().total} 道题已就绪。选择一个分类，或从头开始。`], wrong: ['REVIEW & IMPROVE', '再练一次，就更近一步。', `${currentExam().name}的错题会自动收录，再次答对后移出错题本。`], favorites: ['YOUR COLLECTION', '值得多看一眼的知识。', `当前收藏可跨考试类型保存，正在查看${currentExam().name}。`] };
@@ -506,6 +513,23 @@
     }
     toast(exists ? '已取消收藏' : '已加入我的收藏');
   }
+  function toggleMemoryBookmark(index, target) {
+    if (!Number.isInteger(index) || index < 0) return;
+    const saved = storedMemoryPosition() || {};
+    const nextBookmark = saved.bookmarkIndex === index ? null : index;
+    saveMemoryView({ ...currentMemoryPosition(), bookmarkIndex: nextBookmark });
+    main.querySelectorAll('.memory-bookmark-button').forEach(button => {
+      const active = nextBookmark != null && Number(button.dataset.index) === nextBookmark;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.textContent = active ? '已书签' : '加书签';
+    });
+    if (target) {
+      target.classList.toggle('active', nextBookmark != null && Number(target.dataset.index) === nextBookmark);
+      target.setAttribute('aria-pressed', String(nextBookmark != null && Number(target.dataset.index) === nextBookmark));
+    }
+    toast(nextBookmark == null ? '已取消书签' : '已添加书签');
+  }
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-action]');
     if (!target || target.disabled) return;
@@ -554,6 +578,7 @@
         saveMemoryView(currentMemoryPosition());
       }));
     }
+    else if (action === 'memory-bookmark') toggleMemoryBookmark(Number(target.dataset.index), target);
     else if (action === 'page') { filters.page = Number(target.dataset.value); questionList(); window.scrollTo(0, 0); }
     else if (action === 'reset-filters') { filters = { category: 'all', type: 'all', status: 'all', search: '', page: 1 }; navigate('bank'); }
     else if (['filtered-sequence', 'filtered-random', 'open-question'].includes(action)) {
